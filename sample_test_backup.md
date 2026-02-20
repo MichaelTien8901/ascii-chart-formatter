@@ -208,6 +208,88 @@ The data flows through these components:
 +------------------------------------------+
 ```
 
+## Adjacent Boxes (no gap between them)
+
+```
++------++------+
+| Left  || Right |
++------++------+
+```
+
+## T-Junction Border (single wide box)
+
+```
++----+----+----+
+| spanning box  |
++----+----+----+
+```
+
+## Tab Characters in Content
+
+```
++------------------+
+|	Indented	|
+|		Double	|
+| Normal           |
++------------------+
+```
+
+## CJK / Fullwidth Content
+
+```
++--------------------+
+| 日本語テスト          |
+| English Text       |
+| 中文测试              |
++--------------------+
+```
+
+## Content Wider Than Box
+
+```
++------+
+| This content is much wider than the border |
++------+
+```
+
+## Tilde Code Fence
+
+~~~
++--------+
+| tilde   |
+| fence  |
++--------+
+~~~
+
+## Unclosed Code Fence
+
+```
++--------+
+| no      |
+| closing |
++--------+
+
+## Mixed-Weight Box Drawing (double/light mix)
+
+╒══════════════╕
+│ Mixed weight  │
+╘══════════════╛
+
+## Dashed Line Borders
+
+┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐
+┆ Dashed box     ┆
+└┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘
+
+## Wide Search Window (pipe far from expected)
+
+```
++----------+
+| drifted far right              |
+| normal   |
++----------+
+```
+
 ## Regular Markdown Table (should not be changed)
 
 | Component | Status | Version |
