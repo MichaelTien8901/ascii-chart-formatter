@@ -41,7 +41,7 @@ def main() -> None:
         parser.error("--in-place requires a file argument")
 
     if args.file:
-        with open(args.file) as f:
+        with open(args.file, encoding="utf-8") as f:
             text = f.read()
     else:
         text = sys.stdin.read()
@@ -49,7 +49,7 @@ def main() -> None:
     result = fix_ascii_art(text, normalize=args.normalize, markdown=args.markdown)
 
     if args.in_place:
-        with open(args.file, "w") as f:
+        with open(args.file, "w", encoding="utf-8") as f:
             f.write(result)
     else:
         sys.stdout.write(result)

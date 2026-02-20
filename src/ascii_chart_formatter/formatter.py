@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 
 from .chars import (
@@ -35,6 +36,10 @@ def _find_border_segments(line: str, line_index: int) -> list[BorderInfo]:
 
     A border segment is: corner char + one or more horizontal fill/corner chars + corner char.
     Multiple borders can exist on the same line (side-by-side boxes).
+
+    When a corner char is encountered mid-scan, it ends the current segment
+    if the next char is NOT a horizontal fill char (i.e. it's a true right corner,
+    not a T-junction). The ending corner can then be re-examined as a new left corner.
     """
     segments: list[BorderInfo] = []
     i = 0
@@ -45,9 +50,22 @@ def _find_border_segments(line: str, line_index: int) -> list[BorderInfo]:
         # Found a potential left corner at position i
         left_col = i
         j = i + 1
-        # Consume horizontal fill and corner chars
-        while j < len(line) and (line[j] in HORIZONTAL_FILL_CHARS or line[j] in CORNER_CHARS):
-            j += 1
+        # Consume horizontal fill chars and corner chars (T-junctions)
+        while j < len(line):
+            if line[j] in HORIZONTAL_FILL_CHARS:
+                j += 1
+            elif line[j] in CORNER_CHARS:
+                # Check if this corner is a T-junction (next char is fill)
+                # or a true right corner (next char is not fill / end of line)
+                if j + 1 < len(line) and line[j + 1] in HORIZONTAL_FILL_CHARS:
+                    # T-junction: continue scanning
+                    j += 1
+                else:
+                    # True right corner: end the segment here
+                    j += 1
+                    break
+            else:
+                break
         # j is now past the end of the border segment
         right_col = j - 1
         if right_col > left_col + 1 and line[right_col] in CORNER_CHARS:
@@ -58,7 +76,8 @@ def _find_border_segments(line: str, line_index: int) -> list[BorderInfo]:
                 right_col=right_col,
                 width=width,
             ))
-            i = right_col + 1
+            # Re-examine right_col as a potential new left corner
+            i = right_col
         else:
             i += 1
     return segments
@@ -83,6 +102,9 @@ def _match_boxes(borders: list[BorderInfo], lines: list[str]) -> list[BoxRegion]
     boxes), but only when the line immediately below it contains a vertical
     border char at left_col — proving it is genuine box content, not an
     arrow or gap line between separate boxes.
+
+    Invariant: overlapping box regions cannot occur because each border is
+    used at most once as a top and once as a bottom.
     """
     used_as_top: set[int] = set()
     used_as_bottom: set[int] = set()
@@ -121,6 +143,32 @@ def _match_boxes(borders: list[BorderInfo], lines: list[str]) -> list[BoxRegion]
     return boxes
 
 
+def _display_width(s: str) -> int:
+    """Return the display width of a string, accounting for CJK/fullwidth chars.
+
+    Characters with East Asian Width 'W' (wide) or 'F' (fullwidth) count as
+    2 columns; all others count as 1.
+    """
+    width = 0
+    for ch in s:
+        eaw = unicodedata.east_asian_width(ch)
+        width += 2 if eaw in ("W", "F") else 1
+    return width
+
+
+def _pad_or_trim_to_width(s: str, target: int) -> str:
+    """Pad with spaces or trim trailing spaces so display width equals target."""
+    current = _display_width(s)
+    if current < target:
+        return s + " " * (target - current)
+    elif current > target:
+        # Trim trailing spaces to reduce width
+        while current > target and s.endswith(" "):
+            s = s[:-1]
+            current -= 1
+    return s
+
+
 def _fix_content_line(line: str, box: BoxRegion) -> str:
     """Fix a single content line within a box to align its right edge."""
     left_col = box.top.left_col
@@ -131,14 +179,14 @@ def _fix_content_line(line: str, box: BoxRegion) -> str:
 
     # Find left border char at or near expected position.
     # Search right first (common in side-by-side boxes with extra gap spacing),
-    # then left as fallback.
+    # then left as fallback. Wide search window catches more drift.
     left_idx = None
-    for idx in range(left_col, min(len(line), left_col + 8)):
+    for idx in range(left_col, min(len(line), left_col + 16)):
         if is_vertical_border_char(line[idx]):
             left_idx = idx
             break
     if left_idx is None:
-        for idx in range(left_col - 1, max(-1, left_col - 6), -1):
+        for idx in range(left_col - 1, max(-1, left_col - 12), -1):
             if is_vertical_border_char(line[idx]):
                 left_idx = idx
                 break
@@ -165,17 +213,7 @@ def _fix_content_line(line: str, box: BoxRegion) -> str:
     # Build the fixed box content with exact target_width
     inner = line[left_idx + 1:right_idx]
     target_inner = target_width - 2
-    diff = target_inner - len(inner)
-
-    if diff > 0:
-        inner = inner + " " * diff
-    elif diff < 0:
-        remove = -diff
-        trailing = len(inner) - len(inner.rstrip(" "))
-        if trailing >= remove:
-            inner = inner[:len(inner) - remove]
-        else:
-            inner = inner.rstrip(" ")
+    inner = _pad_or_trim_to_width(inner, target_inner)
 
     fixed_box = line[left_idx] + inner + line[right_idx]
 
@@ -196,34 +234,102 @@ def _fix_content_line(line: str, box: BoxRegion) -> str:
 
 def _fix_lines(lines: list[str]) -> list[str]:
     """Fix misaligned right edges in a list of lines containing ASCII art."""
-    borders = _find_borders(lines)
-    boxes = _match_boxes(borders, lines)
+    # Expand tabs before any processing
+    lines = [line.expandtabs(4) for line in lines]
 
-    if not boxes:
+    for _iteration in range(2):
+        borders = _find_borders(lines)
+        boxes = _match_boxes(borders, lines)
+
+        if not boxes:
+            return lines
+
+        # Pass 1: check if any box needs border extension (content wider than box)
+        extended = False
+        for box in boxes:
+            max_needed = 0
+            for line_idx in range(box.top.line_index + 1, box.bottom.line_index):
+                content_line = lines[line_idx]
+                # Find the inner content between vertical borders
+                left_col = box.top.left_col
+                if left_col >= len(content_line):
+                    continue
+                # Find left |
+                li = None
+                for idx in range(left_col, min(len(content_line), left_col + 16)):
+                    if is_vertical_border_char(content_line[idx]):
+                        li = idx
+                        break
+                if li is None:
+                    continue
+                # Find right |
+                expected_right = li + box.top.width - 1
+                ri = None
+                best_dist = None
+                for idx in range(li + 1, len(content_line)):
+                    if is_vertical_border_char(content_line[idx]):
+                        dist = abs(idx - expected_right)
+                        if best_dist is None or dist < best_dist:
+                            best_dist = dist
+                            ri = idx
+                        elif dist > best_dist:
+                            break
+                if ri is None:
+                    continue
+                inner = content_line[li + 1:ri]
+                needed = _display_width(inner.rstrip()) + 2  # +2 for borders
+                if needed > max_needed:
+                    max_needed = needed
+
+            if max_needed > box.top.width:
+                # Extend borders
+                extra = max_needed - box.top.width
+                for border in (box.top, box.bottom):
+                    bline = lines[border.line_index]
+                    # Find the fill char used in this border
+                    fill_char = "-"
+                    for ch in bline[border.left_col + 1:border.right_col]:
+                        if ch in HORIZONTAL_FILL_CHARS:
+                            fill_char = ch
+                            break
+                    # Insert extra fill chars before the right corner
+                    rc = border.right_col
+                    lines[border.line_index] = (
+                        bline[:rc] + fill_char * extra + bline[rc:]
+                    )
+                    border.right_col += extra
+                    border.width += extra
+                extended = True
+
+        if extended:
+            # Re-detect after extension
+            continue
+
+        # Pass 2: fix content lines normally
+        # Sort boxes innermost first (smallest line range first) so nested
+        # boxes are fixed before their parents
+        boxes.sort(key=lambda b: b.bottom.line_index - b.top.line_index)
+
+        # Build a mapping of line index -> list of boxes that span it,
+        # preserving innermost-first order within each line.
+        line_boxes: dict[int, list[BoxRegion]] = {}
+        for box in boxes:
+            for line_idx in range(box.top.line_index + 1, box.bottom.line_index):
+                line_boxes.setdefault(line_idx, []).append(box)
+
+        # Fix content lines. For each line, sort boxes by line range ascending
+        # (innermost first), then left_col ascending (left-to-right for
+        # side-by-side).  Left-to-right ensures that fixing a left box shifts
+        # content so the right box's | moves closer to its expected position
+        # before we process it.
+        for line_idx in sorted(line_boxes):
+            for box in sorted(
+                line_boxes[line_idx],
+                key=lambda b: (b.bottom.line_index - b.top.line_index, b.top.left_col),
+            ):
+                lines[line_idx] = _fix_content_line(lines[line_idx], box)
+
         return lines
-
-    # Sort boxes innermost first (smallest line range first) so nested
-    # boxes are fixed before their parents
-    boxes.sort(key=lambda b: b.bottom.line_index - b.top.line_index)
-
-    # Build a mapping of line index -> list of boxes that span it,
-    # preserving innermost-first order within each line.
-    line_boxes: dict[int, list[BoxRegion]] = {}
-    for box in boxes:
-        for line_idx in range(box.top.line_index + 1, box.bottom.line_index):
-            line_boxes.setdefault(line_idx, []).append(box)
-
-    # Fix content lines. For each line, sort boxes by line range ascending
-    # (innermost first), then left_col ascending (left-to-right for
-    # side-by-side).  Left-to-right ensures that fixing a left box shifts
-    # content so the right box's | moves closer to its expected position
-    # before we process it.
-    for line_idx in sorted(line_boxes):
-        for box in sorted(
-            line_boxes[line_idx],
-            key=lambda b: (b.bottom.line_index - b.top.line_index, b.top.left_col),
-        ):
-            lines[line_idx] = _fix_content_line(lines[line_idx], box)
 
     return lines
 
@@ -234,39 +340,6 @@ def _has_box_chars(line: str) -> bool:
         if ch in CORNER_CHARS or ch in HORIZONTAL_FILL_CHARS or is_vertical_border_char(ch):
             return True
     return False
-
-
-def _find_diagram_regions(lines: list[str]) -> list[tuple[int, int]]:
-    """Auto-detect regions of consecutive lines that contain box-drawing characters.
-
-    Returns list of (start, end) line index pairs (inclusive).
-    Gaps of up to 2 non-box lines (arrows, labels between boxes) are bridged.
-    """
-    # Find lines that have box chars
-    box_lines: set[int] = set()
-    for i, line in enumerate(lines):
-        if _has_box_chars(line):
-            box_lines.add(i)
-
-    if not box_lines:
-        return []
-
-    # Build regions, bridging small gaps (up to 2 lines without box chars)
-    sorted_indices = sorted(box_lines)
-    regions: list[tuple[int, int]] = []
-    start = sorted_indices[0]
-    end = sorted_indices[0]
-
-    for idx in sorted_indices[1:]:
-        if idx - end <= 3:  # bridge gaps of up to 2 lines
-            end = idx
-        else:
-            regions.append((start, end))
-            start = idx
-            end = idx
-    regions.append((start, end))
-
-    return regions
 
 
 def fix_ascii_art(text: str, normalize: bool = False, markdown: bool = False) -> str:
@@ -284,31 +357,51 @@ def fix_ascii_art(text: str, normalize: bool = False, markdown: bool = False) ->
     if normalize:
         text = normalize_string(text)
 
+    # Expand tabs before processing
+    text = text.expandtabs(4)
+
     if not markdown:
         lines = text.split("\n")
         lines = _fix_lines(lines)
         return "\n".join(lines)
 
-    # Markdown mode: find diagram regions and fix only those
+    # Markdown mode: find diagram regions and fix only those.
+    # Note: +--+--+ style tables are structurally identical to boxes, so
+    # auto-detection correctly treats them as fixable regions. The -m flag
+    # user opted into diagram fixing, and aligned tables are desirable.
     lines = text.split("\n")
 
-    # First pass: find code fence regions
+    # First pass: find code fence regions (``` or ~~~)
     fence_regions: list[tuple[int, int]] = []
     i = 0
     while i < len(lines):
         stripped = lines[i].lstrip()
+        fence_marker = None
         if stripped.startswith("```"):
+            fence_marker = "```"
+        elif stripped.startswith("~~~"):
+            fence_marker = "~~~"
+        if fence_marker is not None:
             fence_start = i
             i += 1
-            while i < len(lines) and not lines[i].lstrip().startswith("```"):
+            while i < len(lines) and not lines[i].lstrip().startswith(fence_marker):
                 i += 1
             if i < len(lines):
                 fence_end = i
-                # Check if this fence contains any box chars
+            else:
+                # Unclosed fence: treat everything to end as fenced (CommonMark)
+                fence_end = len(lines) - 1
+            # Check if this fence contains any box chars
+            if i < len(lines):
                 fence_content = lines[fence_start + 1 : fence_end]
-                if any(_has_box_chars(line) for line in fence_content):
+            else:
+                fence_content = lines[fence_start + 1 : fence_end + 1]
+            if any(_has_box_chars(line) for line in fence_content):
+                if i < len(lines):
                     fence_regions.append((fence_start + 1, fence_end - 1))
-            i += 1
+                else:
+                    fence_regions.append((fence_start + 1, fence_end))
+            i = fence_end + 1
         else:
             i += 1
 

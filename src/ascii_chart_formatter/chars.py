@@ -52,11 +52,78 @@ NORMALIZATION_MAP: dict[str, str] = {
     "\u251b": "+",  # ┛
     "\u2503": "|",  # ┃
     "\u2501": "-",  # ━
+    # Mixed-weight box-drawing (light/double combinations)
+    "\u2552": "+",  # ╒
+    "\u2555": "+",  # ╕
+    "\u2558": "+",  # ╘
+    "\u255b": "+",  # ╛
+    "\u2553": "+",  # ╓
+    "\u2556": "+",  # ╖
+    "\u2559": "+",  # ╙
+    "\u255c": "+",  # ╜
+    "\u255e": "+",  # ╞
+    "\u2561": "+",  # ╡
+    "\u2564": "+",  # ╤
+    "\u2567": "+",  # ╧
+    "\u256a": "+",  # ╪
+    "\u255f": "+",  # ╟
+    "\u2562": "+",  # ╢
+    "\u2565": "+",  # ╥
+    "\u2568": "+",  # ╨
+    "\u256b": "+",  # ╫
+    # Mixed-weight box-drawing (light/heavy combinations)
+    "\u250d": "+",  # ┍
+    "\u250e": "+",  # ┎
+    "\u2511": "+",  # ┑
+    "\u2512": "+",  # ┒
+    "\u2515": "+",  # ┕
+    "\u2516": "+",  # ┖
+    "\u2519": "+",  # ┙
+    "\u251a": "+",  # ┚
+    "\u251d": "+",  # ┝
+    "\u251e": "+",  # ┞
+    "\u251f": "+",  # ┟
+    "\u2520": "+",  # ┠
+    "\u2521": "+",  # ┡
+    "\u2522": "+",  # ┢
+    "\u2525": "+",  # ┥
+    "\u2526": "+",  # ┦
+    "\u2527": "+",  # ┧
+    "\u2528": "+",  # ┨
+    "\u2529": "+",  # ┩
+    "\u252a": "+",  # ┪
+    "\u252d": "+",  # ┭
+    "\u252e": "+",  # ┮
+    "\u252f": "+",  # ┯
+    "\u2530": "+",  # ┰
+    "\u2531": "+",  # ┱
+    "\u2532": "+",  # ┲
+    "\u2535": "+",  # ┵
+    "\u2536": "+",  # ┶
+    "\u2537": "+",  # ┷
+    "\u2538": "+",  # ┸
+    "\u2539": "+",  # ┹
+    "\u253a": "+",  # ┺
+    "\u253d": "+",  # ┽
+    "\u253e": "+",  # ┾
+    "\u253f": "+",  # ┿
+    # Dashed horizontal lines
+    "\u2504": "-",  # ┄ (light triple dash)
+    "\u2505": "-",  # ┅ (heavy triple dash)
+    "\u2508": "-",  # ┈ (light quadruple dash)
+    "\u2509": "-",  # ┉ (heavy quadruple dash)
+    # Dashed vertical lines
+    "\u2506": "|",  # ┆ (light triple dash vertical)
+    "\u2507": "|",  # ┇ (heavy triple dash vertical)
+    "\u250a": "|",  # ┊ (light quadruple dash vertical)
+    "\u250b": "|",  # ┋ (heavy quadruple dash vertical)
 }
 
-CORNER_CHARS = set("┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╰╯┏┓┗┛+")
-HORIZONTAL_FILL_CHARS = set("─━═-")
-VERTICAL_BORDER_CHARS = set("│║┃|")
+CORNER_CHARS = set("┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╰╯┏┓┗┛+"
+                   "╒╕╘╛╓╖╙╜╞╡╤╧╪╟╢╥╨╫"
+                   "┍┎┑┒┕┖┙┚┝┞┟┠┡┢┥┦┧┨┩┪┭┮┯┰┱┲┵┶┷┸┹┺┽┾┿")
+HORIZONTAL_FILL_CHARS = set("─━═-┄┅┈┉")
+VERTICAL_BORDER_CHARS = set("│║┃|┆┇┊┋")
 
 
 def normalize_string(s: str) -> str:

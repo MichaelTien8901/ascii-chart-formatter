@@ -34,6 +34,18 @@ class TestCharSets:
         assert not is_vertical_border_char("+")
         assert not is_vertical_border_char("a")
 
+    def test_mixed_weight_corners(self):
+        """Mixed-weight box-drawing corners are recognized."""
+        for ch in "╒╕╘╛╓╖╙╜╞╡╤╧╪╟╢╥╨╫┍┎┑┒┕┖┙┚┝┞┟┠┡┢┥┦┧┨┩┪┭┮┯┰┱┲┵┶┷┸┹┺┽┾┿":
+            assert ch in CORNER_CHARS, f"{ch!r} should be in CORNER_CHARS"
+
+    def test_dashed_line_chars(self):
+        """Dashed horizontal and vertical variants are recognized."""
+        for ch in "┄┅┈┉":
+            assert ch in HORIZONTAL_FILL_CHARS, f"{ch!r} should be in HORIZONTAL_FILL_CHARS"
+        for ch in "┆┇┊┋":
+            assert ch in VERTICAL_BORDER_CHARS, f"{ch!r} should be in VERTICAL_BORDER_CHARS"
+
 
 # ── Normalization ───────────────────────────────────────────────────
 
@@ -111,6 +123,54 @@ class TestSimpleBoxAlignment:
         )
         assert fix_ascii_art(text) == expected
 
+    def test_content_wider_extends_border(self):
+        """When content is wider than the box, borders should be extended."""
+        text = (
+            "+------+\n"
+            "| very long content |\n"
+            "+------+"
+        )
+        result = fix_ascii_art(text)
+        lines = result.split("\n")
+        # The borders should be extended to fit the content
+        assert len(lines[0]) == len(lines[2])  # top and bottom same width
+        assert len(lines[0]) > 8  # wider than original +------+
+        # Content text must be fully preserved (trailing whitespace may be trimmed)
+        assert "very long content" in lines[1]
+        assert lines[1].startswith("|") and lines[1].endswith("|")
+
+    def test_cjk_content_alignment(self):
+        """CJK (fullwidth) characters should be aligned correctly."""
+        # CJK chars are 2 columns wide, so "hello" (5) and "日本語" (6) differ
+        text = (
+            "+----------+\n"
+            "| 日本語    |\n"
+            "+----------+"
+        )
+        result = fix_ascii_art(text)
+        lines = result.split("\n")
+        # The border is 12 chars wide, inner is 10
+        # "日本語" is 6 display cols, needs 4 spaces to fill 10
+        assert lines[0] == "+----------+"
+        assert lines[2] == "+----------+"
+        # The content line should have correct display width
+        assert lines[1].startswith("| 日本語")
+        assert lines[1].endswith("|")
+
+    def test_tab_expansion(self):
+        """Tabs should be expanded to spaces before fixing."""
+        text = (
+            "+--------+\n"
+            "|\thello |\n"
+            "+--------+"
+        )
+        result = fix_ascii_art(text)
+        # Tabs should be expanded (4 spaces)
+        assert "\t" not in result
+        lines = result.split("\n")
+        assert lines[0] == "+--------+"
+        assert lines[2] == "+--------+"
+
     def test_multiple_content_lines(self):
         text = (
             "+----------+\n"
@@ -132,6 +192,36 @@ class TestSimpleBoxAlignment:
 # ── Multi-box ──────────────────────────────────────────────────────
 
 class TestMultiBox:
+    def test_adjacent_boxes_no_gap(self):
+        """Adjacent boxes sharing a corner (+---++---+) should be split into two segments."""
+        text = (
+            "+---++---+\n"
+            "| a  || b |\n"
+            "+---++---+"
+        )
+        expected = (
+            "+---++---+\n"
+            "| a || b |\n"
+            "+---++---+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_t_junction_not_split(self):
+        """A T-junction (+---+---+) should stay as one segment, not be split."""
+        # +---+---+ is 9 chars wide (single segment with T-junction in middle)
+        # Content line should align to width 9
+        text = (
+            "+---+---+\n"
+            "| hello |\n"
+            "+---+---+"
+        )
+        expected = (
+            "+---+---+\n"
+            "| hello |\n"
+            "+---+---+"
+        )
+        assert fix_ascii_art(text) == expected
+
     def test_stacked_boxes(self):
         text = (
             "+--------+\n"
@@ -454,6 +544,22 @@ class TestEdgeCases:
         # Line without border chars is left unchanged
         assert fix_ascii_art(text) == text
 
+    def test_wider_search_window(self):
+        """Right border | found beyond old 8-char search limit."""
+        # Content line with | shifted 10 chars to the right of expected position
+        text = (
+            "+--------+\n"
+            "| hello            |\n"
+            "+--------+"
+        )
+        result = fix_ascii_art(text)
+        expected = (
+            "+--------+\n"
+            "| hello  |\n"
+            "+--------+"
+        )
+        assert result == expected
+
     def test_preserves_trailing_newline(self):
         text = (
             "+--------+\n"
@@ -760,6 +866,52 @@ class TestMarkdownMode:
             "| Load Balancer    |     | CDN Cache        |\n"
             "+------------------+     +------------------+\n"
             "```\n"
+        )
+        assert fix_ascii_art(text, markdown=True) == expected
+
+    def test_tilde_fence(self):
+        """Tilde fences (~~~) should be detected like backtick fences."""
+        text = (
+            "# Title\n"
+            "\n"
+            "~~~\n"
+            "+--------+\n"
+            "| hello   |\n"
+            "+--------+\n"
+            "~~~\n"
+            "\n"
+            "End.\n"
+        )
+        expected = (
+            "# Title\n"
+            "\n"
+            "~~~\n"
+            "+--------+\n"
+            "| hello  |\n"
+            "+--------+\n"
+            "~~~\n"
+            "\n"
+            "End.\n"
+        )
+        assert fix_ascii_art(text, markdown=True) == expected
+
+    def test_unclosed_fence(self):
+        """Unclosed fence should treat remaining lines as fenced content."""
+        text = (
+            "# Title\n"
+            "\n"
+            "```\n"
+            "+--------+\n"
+            "| hello   |\n"
+            "+--------+"
+        )
+        expected = (
+            "# Title\n"
+            "\n"
+            "```\n"
+            "+--------+\n"
+            "| hello  |\n"
+            "+--------+"
         )
         assert fix_ascii_art(text, markdown=True) == expected
 
