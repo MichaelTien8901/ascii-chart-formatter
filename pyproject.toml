@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ascii-chart-formatter"
+version = "0.1.0"
+description = "Fix misaligned right edges in ASCII-art box diagrams"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+fix-ascii-art = "ascii_chart_formatter.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
