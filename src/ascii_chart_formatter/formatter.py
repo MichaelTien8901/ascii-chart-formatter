@@ -72,25 +72,41 @@ def _find_borders(lines: list[str]) -> list[BorderInfo]:
     return borders
 
 
-def _match_boxes(borders: list[BorderInfo]) -> list[BoxRegion]:
+def _match_boxes(borders: list[BorderInfo], lines: list[str]) -> list[BoxRegion]:
     """Match top borders with bottom borders to form box regions.
 
     A top border matches a bottom border if they share the same left_col
     and width, and the bottom is below the top with no intervening border
     at the same left_col and width.
+
+    A border may serve as both a bottom and a top (shared border in stacked
+    boxes), but only when the line immediately below it contains a vertical
+    border char at left_col — proving it is genuine box content, not an
+    arrow or gap line between separate boxes.
     """
-    used: set[int] = set()
+    used_as_top: set[int] = set()
+    used_as_bottom: set[int] = set()
     boxes: list[BoxRegion] = []
 
     # Sort by line index, then left_col
     sorted_borders = sorted(borders, key=lambda b: (b.line_index, b.left_col))
 
     for i, top in enumerate(sorted_borders):
-        if i in used:
+        if i in used_as_top:
             continue
+        # A border already used as a bottom may only be reused as a top
+        # if the very next line has a | at left_col (stacked box content).
+        if i in used_as_bottom:
+            next_line = top.line_index + 1
+            if (
+                next_line >= len(lines)
+                or top.left_col >= len(lines[next_line])
+                or not is_vertical_border_char(lines[next_line][top.left_col])
+            ):
+                continue
         # Look for the nearest matching bottom border
         for j in range(i + 1, len(sorted_borders)):
-            if j in used:
+            if j in used_as_bottom:
                 continue
             bottom = sorted_borders[j]
             if (
@@ -98,8 +114,8 @@ def _match_boxes(borders: list[BorderInfo]) -> list[BoxRegion]:
                 and bottom.width == top.width
             ):
                 boxes.append(BoxRegion(top=top, bottom=bottom))
-                used.add(i)
-                used.add(j)
+                used_as_top.add(i)
+                used_as_bottom.add(j)
                 break
 
     return boxes
@@ -110,19 +126,31 @@ def _fix_content_line(line: str, box: BoxRegion) -> str:
     left_col = box.top.left_col
     target_width = box.top.width
 
-    # Find left border char
     if left_col >= len(line):
         return line
-    if not is_vertical_border_char(line[left_col]):
+
+    # Find left border char at or near expected position.
+    # Search right first (common in side-by-side boxes with extra gap spacing),
+    # then left as fallback.
+    left_idx = None
+    for idx in range(left_col, min(len(line), left_col + 8)):
+        if is_vertical_border_char(line[idx]):
+            left_idx = idx
+            break
+    if left_idx is None:
+        for idx in range(left_col - 1, max(-1, left_col - 6), -1):
+            if is_vertical_border_char(line[idx]):
+                left_idx = idx
+                break
+    if left_idx is None:
         return line
 
     # Find the right border char closest to the expected position.
-    # This correctly handles side-by-side and nested boxes by not
-    # grabbing a | that belongs to a different box.
-    expected_right = left_col + target_width - 1
+    # Use left_idx (not left_col) as anchor since the content may be shifted.
+    expected_right = left_idx + target_width - 1
     right_idx = None
     best_dist = None
-    for idx in range(left_col + 1, len(line)):
+    for idx in range(left_idx + 1, len(line)):
         if is_vertical_border_char(line[idx]):
             dist = abs(idx - expected_right)
             if best_dist is None or dist < best_dist:
@@ -134,37 +162,42 @@ def _fix_content_line(line: str, box: BoxRegion) -> str:
     if right_idx is None:
         return line
 
-    # Current width from left border to right border (inclusive) = character count
-    current_width = right_idx - left_col + 1
-
-    if current_width == target_width:
-        return line  # Already aligned
-
-    diff = target_width - current_width
-
-    before_right = line[left_col:right_idx]
-    after_right = line[right_idx:]
+    # Build the fixed box content with exact target_width
+    inner = line[left_idx + 1:right_idx]
+    target_inner = target_width - 2
+    diff = target_inner - len(inner)
 
     if diff > 0:
-        # Need more spaces before the right border
-        return line[:left_col] + before_right + (" " * diff) + after_right
-    else:
-        # Need fewer spaces — remove spaces just before the right border
+        inner = inner + " " * diff
+    elif diff < 0:
         remove = -diff
-        trailing_spaces = len(before_right) - len(before_right.rstrip(" "))
-        if trailing_spaces >= remove:
-            trimmed = before_right[:len(before_right) - remove]
-            return line[:left_col] + trimmed + after_right
+        trailing = len(inner) - len(inner.rstrip(" "))
+        if trailing >= remove:
+            inner = inner[:len(inner) - remove]
         else:
-            # Can't remove enough spaces; remove what we can
-            trimmed = before_right.rstrip(" ")
-            return line[:left_col] + trimmed + after_right
+            inner = inner.rstrip(" ")
+
+    fixed_box = line[left_idx] + inner + line[right_idx]
+
+    # Reconstruct the line, placing the fixed box at left_col.
+    # Adjust the prefix (content before the box) to end at left_col.
+    prefix = line[:left_idx]
+    suffix = line[right_idx + 1:]
+
+    if left_idx > left_col:
+        # Trim trailing spaces from prefix to shift box left
+        prefix = prefix[:left_col]
+    elif left_idx < left_col:
+        # Pad prefix with spaces to shift box right
+        prefix = prefix + " " * (left_col - left_idx)
+
+    return prefix + fixed_box + suffix
 
 
 def _fix_lines(lines: list[str]) -> list[str]:
     """Fix misaligned right edges in a list of lines containing ASCII art."""
     borders = _find_borders(lines)
-    boxes = _match_boxes(borders)
+    boxes = _match_boxes(borders, lines)
 
     if not boxes:
         return lines
@@ -173,9 +206,23 @@ def _fix_lines(lines: list[str]) -> list[str]:
     # boxes are fixed before their parents
     boxes.sort(key=lambda b: b.bottom.line_index - b.top.line_index)
 
-    # Fix content lines within each box
+    # Build a mapping of line index -> list of boxes that span it,
+    # preserving innermost-first order within each line.
+    line_boxes: dict[int, list[BoxRegion]] = {}
     for box in boxes:
         for line_idx in range(box.top.line_index + 1, box.bottom.line_index):
+            line_boxes.setdefault(line_idx, []).append(box)
+
+    # Fix content lines. For each line, sort boxes by line range ascending
+    # (innermost first), then left_col ascending (left-to-right for
+    # side-by-side).  Left-to-right ensures that fixing a left box shifts
+    # content so the right box's | moves closer to its expected position
+    # before we process it.
+    for line_idx in sorted(line_boxes):
+        for box in sorted(
+            line_boxes[line_idx],
+            key=lambda b: (b.bottom.line_index - b.top.line_index, b.top.left_col),
+        ):
             lines[line_idx] = _fix_content_line(lines[line_idx], box)
 
     return lines

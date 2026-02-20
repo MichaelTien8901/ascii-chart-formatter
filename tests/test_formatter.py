@@ -177,6 +177,102 @@ class TestMultiBox:
         )
         assert fix_ascii_art(text) == expected
 
+    def test_stacked_boxes_shared_borders(self):
+        """Three boxes sharing border lines (Bug 1 scenario)."""
+        text = (
+            "+--------+\n"
+            "| AAA     |\n"
+            "+--------+\n"
+            "| BBB    |\n"
+            "+--------+\n"
+            "| CCC      |\n"
+            "+--------+"
+        )
+        expected = (
+            "+--------+\n"
+            "| AAA    |\n"
+            "+--------+\n"
+            "| BBB    |\n"
+            "+--------+\n"
+            "| CCC    |\n"
+            "+--------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_side_by_side_both_misaligned(self):
+        """Both left and right side-by-side boxes have misaligned content (Bug 2 scenario)."""
+        text = (
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |       | CDN Cache          |\n"
+            "+------------------+     +------------------+"
+        )
+        expected = (
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |     | CDN Cache        |\n"
+            "+------------------+     +------------------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_side_by_side_second_row(self):
+        """Two rows of side-by-side boxes separated by arrow lines."""
+        text = (
+            "+------------------+     +------------------+\n"
+            "| Frontend App     |     | Mobile Client    |\n"
+            "+------------------+     +------------------+\n"
+            "        |                        |\n"
+            "        v                        v\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |       | CDN Cache          |\n"
+            "+------------------+     +------------------+"
+        )
+        expected = (
+            "+------------------+     +------------------+\n"
+            "| Frontend App     |     | Mobile Client    |\n"
+            "+------------------+     +------------------+\n"
+            "        |                        |\n"
+            "        v                        v\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |     | CDN Cache        |\n"
+            "+------------------+     +------------------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_stacked_boxes_shared_borders_unicode(self):
+        """Shared-border stacked boxes using Unicode box-drawing chars."""
+        text = (
+            "┌────────┐\n"
+            "│ AAA     │\n"
+            "├────────┤\n"
+            "│ BBB    │\n"
+            "├────────┤\n"
+            "│ CCC      │\n"
+            "└────────┘"
+        )
+        expected = (
+            "┌────────┐\n"
+            "│ AAA    │\n"
+            "├────────┤\n"
+            "│ BBB    │\n"
+            "├────────┤\n"
+            "│ CCC    │\n"
+            "└────────┘"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_side_by_side_both_misaligned_unicode(self):
+        """Side-by-side Unicode boxes with both needing alignment."""
+        text = (
+            "┌──────────────────┐     ┌──────────────────┐\n"
+            "│ Load Balancer    │       │ CDN Cache          │\n"
+            "└──────────────────┘     └──────────────────┘"
+        )
+        expected = (
+            "┌──────────────────┐     ┌──────────────────┐\n"
+            "│ Load Balancer    │     │ CDN Cache        │\n"
+            "└──────────────────┘     └──────────────────┘"
+        )
+        assert fix_ascii_art(text) == expected
+
 
 # ── Nested boxes ───────────────────────────────────────────────────
 
@@ -237,6 +333,54 @@ class TestNestedBoxes:
             "|  | inner  |      |\n"
             "|  +--------+      |\n"
             "+------------------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_deeply_nested_three_levels(self):
+        """Three levels of nesting with misalignment at each level."""
+        text = (
+            "+--------------------------------------+\n"
+            "| Outer                                 |\n"
+            "|                                      |\n"
+            "|  +----------------------------+      |\n"
+            "|  | Middle                      |      |\n"
+            "|  |                            |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Inner             |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  +----------------------------+      |\n"
+            "+--------------------------------------+"
+        )
+        expected = (
+            "+--------------------------------------+\n"
+            "| Outer                                |\n"
+            "|                                      |\n"
+            "|  +----------------------------+      |\n"
+            "|  | Middle                     |      |\n"
+            "|  |                            |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Inner            |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  +----------------------------+      |\n"
+            "+--------------------------------------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_nested_both_misaligned_unicode(self):
+        """Unicode nested boxes with both inner and outer misaligned."""
+        text = (
+            "┌──────────────────┐\n"
+            "│  ┌────────┐       │\n"
+            "│  │ inner   │       │\n"
+            "│  └────────┘       │\n"
+            "└──────────────────┘"
+        )
+        expected = (
+            "┌──────────────────┐\n"
+            "│  ┌────────┐      │\n"
+            "│  │ inner  │      │\n"
+            "│  └────────┘      │\n"
+            "└──────────────────┘"
         )
         assert fix_ascii_art(text) == expected
 
@@ -364,6 +508,76 @@ class TestRealWorld:
             "+-------+     +-------+\n"
             "| Start | --> | End   |\n"
             "+-------+     +-------+"
+        )
+        assert fix_ascii_art(text) == expected
+
+    def test_full_sample_diagram(self):
+        """Full sample_test.md scenario: stacked shared-border, side-by-side, nested."""
+        text = (
+            "+------------------------+\n"
+            "| API Gateway            |\n"
+            "+------------------------+\n"
+            "| Authentication    |\n"
+            "+------------------------+\n"
+            "| Request Router         |\n"
+            "+------------------------+\n"
+            "\n"
+            "+------------------+     +------------------+\n"
+            "| Frontend App     |     | Mobile Client    |\n"
+            "+------------------+     +------------------+\n"
+            "        |                        |\n"
+            "        v                        v\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |       | CDN Cache          |\n"
+            "+------------------+     +------------------+\n"
+            "\n"
+            "+--------------------------------------+\n"
+            "| Kubernetes Cluster                   |\n"
+            "|                                      |\n"
+            "|  +----------------------------+      |\n"
+            "|  | Service Mesh               |      |\n"
+            "|  |                            |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Microservice A   |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Microservice B   |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  +----------------------------+      |\n"
+            "+--------------------------------------+"
+        )
+        expected = (
+            "+------------------------+\n"
+            "| API Gateway            |\n"
+            "+------------------------+\n"
+            "| Authentication         |\n"
+            "+------------------------+\n"
+            "| Request Router         |\n"
+            "+------------------------+\n"
+            "\n"
+            "+------------------+     +------------------+\n"
+            "| Frontend App     |     | Mobile Client    |\n"
+            "+------------------+     +------------------+\n"
+            "        |                        |\n"
+            "        v                        v\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |     | CDN Cache        |\n"
+            "+------------------+     +------------------+\n"
+            "\n"
+            "+--------------------------------------+\n"
+            "| Kubernetes Cluster                   |\n"
+            "|                                      |\n"
+            "|  +----------------------------+      |\n"
+            "|  | Service Mesh               |      |\n"
+            "|  |                            |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Microservice A   |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  |  | Microservice B   |      |      |\n"
+            "|  |  +------------------+      |      |\n"
+            "|  +----------------------------+      |\n"
+            "+--------------------------------------+"
         )
         assert fix_ascii_art(text) == expected
 
@@ -497,6 +711,54 @@ class TestMarkdownMode:
             "+------+\n"
             "| two  |\n"
             "+------+\n"
+            "```\n"
+        )
+        assert fix_ascii_art(text, markdown=True) == expected
+
+    def test_markdown_stacked_shared_borders(self):
+        """Shared-border stacked boxes inside a code fence."""
+        text = (
+            "# Stacked\n"
+            "\n"
+            "```\n"
+            "+------------------------+\n"
+            "| API Gateway            |\n"
+            "+------------------------+\n"
+            "| Authentication    |\n"
+            "+------------------------+\n"
+            "| Request Router         |\n"
+            "+------------------------+\n"
+            "```\n"
+        )
+        expected = (
+            "# Stacked\n"
+            "\n"
+            "```\n"
+            "+------------------------+\n"
+            "| API Gateway            |\n"
+            "+------------------------+\n"
+            "| Authentication         |\n"
+            "+------------------------+\n"
+            "| Request Router         |\n"
+            "+------------------------+\n"
+            "```\n"
+        )
+        assert fix_ascii_art(text, markdown=True) == expected
+
+    def test_markdown_side_by_side_both_fixed(self):
+        """Side-by-side boxes inside a code fence with both needing alignment."""
+        text = (
+            "```\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |       | CDN Cache          |\n"
+            "+------------------+     +------------------+\n"
+            "```\n"
+        )
+        expected = (
+            "```\n"
+            "+------------------+     +------------------+\n"
+            "| Load Balancer    |     | CDN Cache        |\n"
+            "+------------------+     +------------------+\n"
             "```\n"
         )
         assert fix_ascii_art(text, markdown=True) == expected
